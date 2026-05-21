@@ -1,4 +1,4 @@
-import fs from "node:fs";
+import fs from "node:fs/promises";
 import path from "node:path";
 import OpenAI from "openai";
 import { GENERATED_DIR, OPENAI_API_KEY, OPENAI_IMAGE_BASE_URL, OPENAI_IMAGE_MODEL } from "./config";
@@ -33,36 +33,13 @@ export async function generateImageWithFallback(request: GenerateImageRequest): 
   }
 
   const client = new OpenAI({ apiKey: OPENAI_API_KEY, baseURL: OPENAI_IMAGE_BASE_URL });
-  const files = request.inputPaths
-    .filter((filePath) => fs.existsSync(filePath))
-    .map((filePath) => fs.createReadStream(filePath));
 
   try {
-    let response;
-    let degradedReason = "";
-    try {
-      response =
-        files.length > 0
-          ? await client.images.edit({
-              model: OPENAI_IMAGE_MODEL,
-              image: files as never,
-              prompt: request.prompt,
-              size: request.size ?? "1024x1536"
-            } as never)
-          : await client.images.generate({
-              model: OPENAI_IMAGE_MODEL,
-              prompt: request.prompt,
-              size: request.size ?? "1024x1536"
-            } as never);
-    } catch (error) {
-      if (!files.length || !canDegradeEditToGeneration(error)) throw error;
-      degradedReason = summarizeOpenAIError(error);
-      response = await client.images.generate({
-        model: OPENAI_IMAGE_MODEL,
-        prompt: `${request.prompt}\n\n注意：当前图片编辑接口不可用，请根据上述人物与站位要求生成一张真实节目海报风格初稿。`,
-        size: request.size ?? "1024x1536"
-      } as never);
-    }
+    const response = await client.images.generate({
+      model: OPENAI_IMAGE_MODEL,
+      prompt: `${request.prompt}\n\n当前系统固定使用 /v1/images/generations 生图端点；上传素材只作为业务上下文和版本记录，不作为图片编辑输入提交。`,
+      size: request.size ?? "1024x1536"
+    } as never);
 
     const image = extractImage(response);
     if (!image) throw new Error("OpenAI image response did not include image data.");
@@ -70,11 +47,11 @@ export async function generateImageWithFallback(request: GenerateImageRequest): 
     const filename = `${id("openai")}.png`;
     const outPath = path.join(GENERATED_DIR, filename);
     if (image.b64) {
-      await fs.promises.writeFile(outPath, Buffer.from(image.b64, "base64"));
+      await fs.writeFile(outPath, Buffer.from(image.b64, "base64"));
     } else if (image.url) {
       const remote = await fetch(image.url);
       if (!remote.ok) throw new Error(`Failed to fetch image URL: ${remote.status}`);
-      await fs.promises.writeFile(outPath, Buffer.from(await remote.arrayBuffer()));
+      await fs.writeFile(outPath, Buffer.from(await remote.arrayBuffer()));
     }
 
     return {
@@ -85,10 +62,7 @@ export async function generateImageWithFallback(request: GenerateImageRequest): 
       height: undefined,
       model: OPENAI_IMAGE_MODEL,
       mode: "openai" as const,
-      note: degradedReason
-        ? "Image edit failed; used real image generation without source-image editing."
-        : undefined,
-      errorLog: degradedReason ? `Image edit degraded to generation: ${degradedReason}` : undefined,
+      note: "Used /v1/images/generations endpoint.",
       dataUrl: image.b64 ? dataUrlFromBase64(image.b64) : undefined
     };
   } catch (error) {
@@ -100,15 +74,6 @@ export async function generateImageWithFallback(request: GenerateImageRequest): 
     });
     return { ...mock, model: OPENAI_IMAGE_MODEL, mode: "mock" as const, errorLog };
   }
-}
-
-function canDegradeEditToGeneration(error: unknown) {
-  const value = error as { status?: number; code?: string; message?: string; error?: { message?: string } };
-  const message = [value.message, value.error?.message].filter(Boolean).join(" ");
-  return (
-    (value.status === 400 && /不支持模型|does not support|unsupported/i.test(message)) ||
-    (value.status === 503 && /upstream|unavailable|failed/i.test(message))
-  );
 }
 
 function summarizeOpenAIError(error: unknown) {
