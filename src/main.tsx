@@ -452,7 +452,13 @@ function VersionThumb({ version }: { version: PosterVersion }) {
       <img src={version.url} alt={version.stage} />
       <figcaption>
         <strong>{stageLabel(version.stage)}</strong>
-        <span>{version.mode}</span>
+        <span className={version.errorLog ? "modeWithWarning" : ""}>{version.mode}</span>
+        {version.errorLog && (
+          <details>
+            <summary>日志</summary>
+            <p>{version.errorLog}</p>
+          </details>
+        )}
       </figcaption>
     </figure>
   );

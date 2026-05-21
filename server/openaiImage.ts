@@ -13,10 +13,23 @@ export interface GenerateImageRequest {
   size?: string;
 }
 
-export async function generateImageWithFallback(request: GenerateImageRequest) {
+export interface GeneratedImageResult {
+  filename: string;
+  path: string;
+  url: string;
+  width?: number;
+  height?: number;
+  model: string;
+  mode: "openai" | "mock";
+  note?: string;
+  errorLog?: string;
+  dataUrl?: string;
+}
+
+export async function generateImageWithFallback(request: GenerateImageRequest): Promise<GeneratedImageResult> {
   if (!OPENAI_API_KEY) {
     const mock = await createMockImage(request);
-    return { ...mock, model: OPENAI_IMAGE_MODEL, mode: "mock" as const };
+    return { ...mock, model: OPENAI_IMAGE_MODEL, mode: "mock" as const, errorLog: "OPENAI_API_KEY is not configured." };
   }
 
   const client = new OpenAI({ apiKey: OPENAI_API_KEY, baseURL: OPENAI_IMAGE_BASE_URL });
@@ -26,7 +39,7 @@ export async function generateImageWithFallback(request: GenerateImageRequest) {
 
   try {
     let response;
-    let degradedToGenerate = false;
+    let degradedReason = "";
     try {
       response =
         files.length > 0
@@ -42,8 +55,8 @@ export async function generateImageWithFallback(request: GenerateImageRequest) {
               size: request.size ?? "1024x1536"
             } as never);
     } catch (error) {
-      if (!files.length || !isUnsupportedEditModel(error)) throw error;
-      degradedToGenerate = true;
+      if (!files.length || !canDegradeEditToGeneration(error)) throw error;
+      degradedReason = summarizeOpenAIError(error);
       response = await client.images.generate({
         model: OPENAI_IMAGE_MODEL,
         prompt: `${request.prompt}\n\n注意：当前图片编辑接口不可用，请根据上述人物与站位要求生成一张真实节目海报风格初稿。`,
@@ -72,25 +85,49 @@ export async function generateImageWithFallback(request: GenerateImageRequest) {
       height: undefined,
       model: OPENAI_IMAGE_MODEL,
       mode: "openai" as const,
-      note: degradedToGenerate
-        ? "Image edit endpoint does not support this model; used real image generation without source-image editing."
+      note: degradedReason
+        ? "Image edit failed; used real image generation without source-image editing."
         : undefined,
+      errorLog: degradedReason ? `Image edit degraded to generation: ${degradedReason}` : undefined,
       dataUrl: image.b64 ? dataUrlFromBase64(image.b64) : undefined
     };
   } catch (error) {
-    console.error("[openai-image] falling back to mock image:", error);
+    const errorLog = summarizeOpenAIError(error);
+    console.error("[openai-image] falling back to mock image:", errorLog);
     const mock = await createMockImage({
       ...request,
-      note: `OpenAI 调用失败，已生成本地 mock：${error instanceof Error ? error.message : String(error)}`
+      note: `OpenAI 调用失败，已生成本地 mock：${errorLog}`
     });
-    return { ...mock, model: OPENAI_IMAGE_MODEL, mode: "mock" as const };
+    return { ...mock, model: OPENAI_IMAGE_MODEL, mode: "mock" as const, errorLog };
   }
 }
 
-function isUnsupportedEditModel(error: unknown) {
+function canDegradeEditToGeneration(error: unknown) {
   const value = error as { status?: number; code?: string; message?: string; error?: { message?: string } };
   const message = [value.message, value.error?.message].filter(Boolean).join(" ");
-  return value.status === 400 && /不支持模型|does not support|unsupported/i.test(message);
+  return (
+    (value.status === 400 && /不支持模型|does not support|unsupported/i.test(message)) ||
+    (value.status === 503 && /upstream|unavailable|failed/i.test(message))
+  );
+}
+
+function summarizeOpenAIError(error: unknown) {
+  const value = error as {
+    status?: number;
+    code?: string;
+    type?: string;
+    message?: string;
+    requestID?: string | null;
+    error?: { code?: string; type?: string; message?: string };
+    cause?: { code?: string; message?: string };
+  };
+  const status = value.status ? `status=${value.status}` : undefined;
+  const code = value.code || value.error?.code ? `code=${value.code || value.error?.code}` : undefined;
+  const type = value.type || value.error?.type ? `type=${value.type || value.error?.type}` : undefined;
+  const requestID = value.requestID ? `request_id=${value.requestID}` : undefined;
+  const cause = value.cause?.code || value.cause?.message ? `cause=${[value.cause.code, value.cause.message].filter(Boolean).join(":")}` : undefined;
+  const message = value.error?.message || value.message || String(error);
+  return [status, code, type, requestID, cause, `message=${message}`].filter(Boolean).join(" ");
 }
 
 function extractImage(response: unknown): { b64?: string; url?: string } | null {

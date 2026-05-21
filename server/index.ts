@@ -226,6 +226,7 @@ app.post("/api/projects/:projectId/generate/:stage", async (req, res, next) => {
       createdAt: nowIso(),
       inputs: inputs.map((input) => input.url),
       note: [req.body?.instruction, plan.note, result.note].filter(Boolean).join("\n"),
+      errorLog: [plan.mode === "passthrough" ? plan.note : undefined, result.errorLog].filter(Boolean).join("\n") || undefined,
       ...dimensions
     };
     res.json(await addVersion(project.id, version));

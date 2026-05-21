@@ -52,6 +52,7 @@ export interface PosterVersion {
   createdAt: string;
   inputs: string[];
   note?: string;
+  errorLog?: string;
   width?: number;
   height?: number;
 }
