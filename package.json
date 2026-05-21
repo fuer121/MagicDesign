@@ -1,0 +1,39 @@
+{
+  "name": "magic-design-poster-tool",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:client": "vite --host 0.0.0.0 --port 5188 --strictPort",
+    "dev:server": "tsx watch server/index.ts",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "start": "node dist-server/index.js"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "lucide-react": "^0.562.0",
+    "multer": "^2.0.2",
+    "openai": "^6.13.1",
+    "sharp": "^0.34.5"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^25.0.2",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "concurrently": "^9.2.1",
+    "playwright": "^1.60.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.0"
+  }
+}

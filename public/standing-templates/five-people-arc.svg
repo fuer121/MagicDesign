@@ -1,0 +1,17 @@
+<svg width="1200" height="1600" viewBox="0 0 1200 1600" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="1600" fill="#f8fafc"/>
+  <path d="M140 1020 C330 820 870 820 1060 1020" fill="none" stroke="#94a3b8" stroke-width="8" stroke-dasharray="20 24"/>
+  <g fill="none" stroke="#0f172a" stroke-width="10" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="210" cy="610" r="62"/>
+    <path d="M210 680 V1015 M150 790 H270 M210 1015 L140 1240 M210 1015 L280 1240"/>
+    <circle cx="405" cy="555" r="66"/>
+    <path d="M405 628 V1040 M335 760 H475 M405 1040 L330 1300 M405 1040 L480 1300"/>
+    <circle cx="600" cy="500" r="72"/>
+    <path d="M600 580 V1060 M520 740 H680 M600 1060 L515 1350 M600 1060 L685 1350"/>
+    <circle cx="795" cy="555" r="66"/>
+    <path d="M795 628 V1040 M725 760 H865 M795 1040 L720 1300 M795 1040 L870 1300"/>
+    <circle cx="990" cy="610" r="62"/>
+    <path d="M990 680 V1015 M930 790 H1050 M990 1015 L920 1240 M990 1015 L1060 1240"/>
+  </g>
+  <text x="600" y="1450" text-anchor="middle" font-family="Arial, sans-serif" font-size="46" fill="#334155">五人弧形主 C 位</text>
+</svg>

@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.env
+.DS_Store
+APIKey.rtf
+tmp/
+uploads/*
+generated/*
+exports/*
+data/projects/*
+!uploads/.gitkeep
+!generated/.gitkeep
+!exports/.gitkeep
+!data/projects/.gitkeep

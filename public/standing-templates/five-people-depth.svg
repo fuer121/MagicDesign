@@ -1,0 +1,17 @@
+<svg width="1200" height="1600" viewBox="0 0 1200 1600" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="1600" fill="#f8fafc"/>
+  <ellipse cx="600" cy="980" rx="420" ry="190" fill="none" stroke="#94a3b8" stroke-width="8" stroke-dasharray="18 22"/>
+  <g fill="none" stroke="#0f172a" stroke-width="10" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="360" cy="540" r="58"/>
+    <path d="M360 607 V965 M300 720 H420 M360 965 L300 1190 M360 965 L420 1190"/>
+    <circle cx="840" cy="540" r="58"/>
+    <path d="M840 607 V965 M780 720 H900 M840 965 L780 1190 M840 965 L900 1190"/>
+    <circle cx="510" cy="630" r="66"/>
+    <path d="M510 705 V1110 M440 850 H580 M510 1110 L430 1370 M510 1110 L590 1370"/>
+    <circle cx="690" cy="630" r="66"/>
+    <path d="M690 705 V1110 M620 850 H760 M690 1110 L610 1370 M690 1110 L770 1370"/>
+    <circle cx="600" cy="470" r="72"/>
+    <path d="M600 550 V1035 M520 710 H680 M600 1035 L505 1345 M600 1035 L695 1345"/>
+  </g>
+  <text x="600" y="1450" text-anchor="middle" font-family="Arial, sans-serif" font-size="46" fill="#334155">五人前后层次 C 位</text>
+</svg>
