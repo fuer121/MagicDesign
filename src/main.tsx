@@ -215,6 +215,7 @@ function App() {
           <span>{project.assets.length} 个素材</span>
           <span>{project.confirmedPeople ? "人物已确认" : "等待人物确认"}</span>
           <span>文本：{bootstrap.modelConfig.textModel}</span>
+          <span>Review：{bootstrap.modelConfig.reviewModel}</span>
           <span>图像：{bootstrap.modelConfig.imageModel}</span>
           <span>图片接口：{bootstrap.modelConfig.imageBaseUrlHost}</span>
           <span>文本接口：{bootstrap.modelConfig.textBaseUrlHost}</span>

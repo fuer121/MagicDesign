@@ -11,6 +11,7 @@ import {
   OPENAI_BASE_URL,
   OPENAI_IMAGE_BASE_URL,
   OPENAI_IMAGE_MODEL,
+  OPENAI_REVIEW_MODEL,
   OPENAI_TEXT_BASE_URL,
   OPENAI_TEXT_MODEL,
   PORT,
@@ -80,6 +81,7 @@ app.get("/api/bootstrap", async (_req, res, next) => {
       modelConfig: {
         imageModel: OPENAI_IMAGE_MODEL,
         textModel: OPENAI_TEXT_MODEL,
+        reviewModel: OPENAI_REVIEW_MODEL,
         hasApiKey: Boolean(process.env.OPENAI_API_KEY),
         baseUrlHost: OPENAI_BASE_URL ? new URL(OPENAI_BASE_URL).host : "api.openai.com",
         imageBaseUrlHost: OPENAI_IMAGE_BASE_URL ? new URL(OPENAI_IMAGE_BASE_URL).host : "api.openai.com",

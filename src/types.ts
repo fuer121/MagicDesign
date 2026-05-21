@@ -78,6 +78,7 @@ export interface BootstrapData {
   modelConfig: {
     imageModel: string;
     textModel: string;
+    reviewModel: string;
     hasApiKey: boolean;
     baseUrlHost: string;
     imageBaseUrlHost: string;

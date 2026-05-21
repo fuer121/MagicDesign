@@ -42,10 +42,13 @@ OPENAI_IMAGE_BASE_URL=
 OPENAI_TEXT_BASE_URL=
 OPENAI_IMAGE_MODEL=gpt-image-2
 OPENAI_TEXT_MODEL=gpt-5.5
+OPENAI_REVIEW_MODEL=gpt-5.5
 PORT=8787
 ```
 
 不要把 API Key 放到前端，也不要从 `APIKey.rtf` 直接给浏览器读取。当前实现只在 Node 服务端读取环境变量。使用 OpenAI 兼容网关时，可在 `OPENAI_IMAGE_BASE_URL` 和 `OPENAI_TEXT_BASE_URL` 分别配置图片与文本接口；只填 `OPENAI_BASE_URL` 时两者共用同一个地址。地址可以填网关根地址，服务端会自动规范化到 `/v1`。
+
+如果日志出现 `Image generation is not enabled for this group`，说明当前 key 或代理账号组没有开启图片生成权限；文本模型仍可用于 Prompt 优化，但人物/背景出图会降级为本地 mock。
 
 ## 本地目录
 
