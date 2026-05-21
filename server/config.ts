@@ -9,7 +9,7 @@ export const ROOT_DIR = path.resolve(path.dirname(__filename), "..");
 
 export const PORT = Number(process.env.PORT ?? 8787);
 export const OPENAI_IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-2";
-export const OPENAI_TEXT_MODEL = process.env.OPENAI_TEXT_MODEL ?? "gpt-5.5";
+export const OPENAI_TEXT_MODEL = process.env.OPENAI_TEXT_MODEL ?? "gpt-5.4";
 export const OPENAI_REVIEW_MODEL = process.env.OPENAI_REVIEW_MODEL ?? OPENAI_TEXT_MODEL;
 export const OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? "";
 export const OPENAI_BASE_URL = normalizeBaseUrl(process.env.OPENAI_BASE_URL);
