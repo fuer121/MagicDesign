@@ -1,14 +1,22 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import {
+  ArrowLeft,
   BadgeCheck,
   Bot,
+  CalendarClock,
   ChevronRight,
+  CheckCircle2,
+  Circle,
+  ClipboardList,
   Download,
+  FileImage,
+  FolderOpen,
   ImagePlus,
   LayoutTemplate,
   MessageSquareText,
   Palette,
+  Plus,
   RefreshCw,
   Sparkles,
   Upload,
@@ -41,9 +49,12 @@ const defaultCopy: PosterCopy = {
   extra: "特邀嘉宾阵容 / 圆桌对谈 / 年度发布"
 };
 
+type ViewMode = "tasks" | "studio";
+
 function App() {
   const [bootstrap, setBootstrap] = React.useState<BootstrapData | null>(null);
   const [project, setProject] = React.useState<PosterProject | null>(null);
+  const [view, setView] = React.useState<ViewMode>("tasks");
   const [selectedStep, setSelectedStep] = React.useState(0);
   const [selectedTemplate, setSelectedTemplate] = React.useState(templates[0].url);
   const [instruction, setInstruction] = React.useState("");
@@ -61,33 +72,41 @@ function App() {
   }, []);
 
   React.useEffect(() => {
-    if (!error || project) return;
+    if (!error || bootstrap) return;
     const retry = window.setTimeout(() => {
       void load();
     }, 1200);
     return () => window.clearTimeout(retry);
-  }, [error, project]);
+  }, [error, bootstrap]);
 
   React.useEffect(() => {
+    if (view !== "studio" || !canvasRef.current) return;
     const latest = latestVersion(project);
     const logo = latestLogo(project);
-    if (canvasRef.current) {
-      void renderPoster(canvasRef.current, latest, logo, copy, layout, project?.settings.style ?? "KV Studio");
-    }
-  }, [project, copy, layout]);
+    void renderPoster(canvasRef.current, latest, logo, copy, layout, project?.settings.style ?? "KV Studio");
+  }, [project, copy, layout, view]);
 
   async function load() {
     try {
       const data = await api.bootstrap();
       setBootstrap(data);
-      if (data.projects[0]) {
-        setProject(data.projects[0]);
-      } else {
-        setProject(await api.createProject("节目主视觉快速生成"));
-      }
+      setProject((current) => (current ? data.projects.find((item) => item.id === current.id) ?? current : current));
+      setError("");
     } catch (err) {
       setError(messageOf(err));
     }
+  }
+
+  function syncProject(next: PosterProject) {
+    setProject(next);
+    setBootstrap((current) =>
+      current
+        ? {
+            ...current,
+            projects: upsertProject(current.projects, next)
+          }
+        : current
+    );
   }
 
   async function run<T>(label: string, task: () => Promise<T>, onDone?: (value: T) => void) {
@@ -95,13 +114,27 @@ function App() {
     setError("");
     try {
       const value = await task();
+      if (isProject(value)) syncProject(value);
       onDone?.(value);
-      if (isProject(value)) setProject(value);
     } catch (err) {
       setError(messageOf(err));
     } finally {
       setBusy("");
     }
+  }
+
+  async function createTask() {
+    await run("创建任务", () => api.createProject(`节目主视觉任务 ${formatDateTime(new Date())}`), (created) => {
+      if (!isProject(created)) return;
+      setSelectedStep(getNextStep(created));
+      setView("studio");
+    });
+  }
+
+  function openProject(nextProject: PosterProject) {
+    syncProject(nextProject);
+    setSelectedStep(getNextStep(nextProject));
+    setView("studio");
   }
 
   async function uploadFiles(kind: AssetKind, files: FileList | null) {
@@ -158,7 +191,7 @@ function App() {
     setLayout(PRESET_LAYOUTS[0]);
   }
 
-  if (!project || !bootstrap) {
+  if (!bootstrap) {
     return (
       <main className="loading">
         <Sparkles size={28} />
@@ -172,6 +205,19 @@ function App() {
           </>
         )}
       </main>
+    );
+  }
+
+  if (view === "tasks" || !project) {
+    return (
+      <TaskManagerPage
+        bootstrap={bootstrap}
+        busy={busy}
+        error={error}
+        onCreateTask={() => void createTask()}
+        onOpenProject={openProject}
+        onRefresh={() => void load()}
+      />
     );
   }
 
@@ -229,6 +275,10 @@ function App() {
             <h2>{steps[selectedStep].title}</h2>
           </div>
           <div className="topbarActions">
+            <button className="ghostButton" onClick={() => setView("tasks")}>
+              <ArrowLeft size={16} />
+              返回任务管理
+            </button>
             <button className="ghostButton" onClick={() => void load()}>
               <RefreshCw size={16} />
               刷新
@@ -401,6 +451,178 @@ function App() {
   );
 }
 
+function TaskManagerPage({
+  bootstrap,
+  busy,
+  error,
+  onCreateTask,
+  onOpenProject,
+  onRefresh
+}: {
+  bootstrap: BootstrapData;
+  busy: string;
+  error: string;
+  onCreateTask: () => void;
+  onOpenProject: (project: PosterProject) => void;
+  onRefresh: () => void;
+}) {
+  const projects = [...bootstrap.projects].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const generatedCount = projects.filter((item) => item.versions.length > 0).length;
+  const exportCount = projects.filter((item) => item.versions.some((version) => version.url.startsWith("/exports"))).length;
+
+  return (
+    <main className="taskShell">
+      <header className="taskHeader">
+        <div className="taskTitleBlock">
+          <div className="brand compactBrand">
+            <div className="brandMark">M</div>
+            <div>
+              <h1>MagicDesign</h1>
+              <p>活动/节目主视觉快速生成工具</p>
+            </div>
+          </div>
+          <div>
+            <p className="caption">顶层任务管理</p>
+            <h2>任务管理</h2>
+          </div>
+        </div>
+        <div className="taskActions">
+          <button className="ghostButton" disabled={Boolean(busy)} onClick={onRefresh}>
+            <RefreshCw size={16} />
+            刷新
+          </button>
+          <button className="primaryButton" disabled={Boolean(busy)} onClick={onCreateTask}>
+            <Plus size={16} />
+            新建任务
+          </button>
+        </div>
+      </header>
+
+      {error && <div className="errorBar">{error}</div>}
+      {busy && <div className="busyBar">{busy}...</div>}
+
+      <section className="taskStats" aria-label="任务概览">
+        <StatBlock label="任务总数" value={projects.length} icon={<ClipboardList size={18} />} />
+        <StatBlock label="已有生成稿" value={generatedCount} icon={<Sparkles size={18} />} />
+        <StatBlock label="已导出" value={exportCount} icon={<Download size={18} />} />
+        <div className="modelStatus">
+          <strong>{bootstrap.modelConfig.imageModel}</strong>
+          <span>图像接口：{bootstrap.modelConfig.imageBaseUrlHost}</span>
+          <span>文本模型：{bootstrap.modelConfig.textModel}</span>
+        </div>
+      </section>
+
+      {projects.length > 0 ? (
+        <section className="taskGrid" aria-label="海报任务列表">
+          {projects.map((item) => (
+            <TaskCard key={item.id} project={item} onOpen={() => onOpenProject(item)} />
+          ))}
+        </section>
+      ) : (
+        <section className="taskEmpty">
+          <div className="emptyIcon">
+            <FileImage size={34} />
+          </div>
+          <h3>还没有海报任务</h3>
+          <p>创建一个节目主视觉任务后，再上传人物定妆照、站位线图、背景参考和 Logo。</p>
+          <button className="primaryButton" disabled={Boolean(busy)} onClick={onCreateTask}>
+            <Plus size={16} />
+            新建任务
+          </button>
+        </section>
+      )}
+    </main>
+  );
+}
+
+function TaskCard({ project, onOpen }: { project: PosterProject; onOpen: () => void }) {
+  const progress = getProjectProgress(project);
+  const latestPreview = getLatestPreview(project);
+  const lastMode = latestPreview?.mode ?? "未生成";
+  const assetSummary = summarizeAssets(project.assets);
+
+  return (
+    <article className="taskCard">
+      <div className="taskPreview">
+        {latestPreview ? (
+          <img src={latestPreview.url} alt={`${project.name} 最新预览`} />
+        ) : (
+          <div className="previewPlaceholder">
+            <FileImage size={30} />
+            <span>暂无预览</span>
+          </div>
+        )}
+        <span className={`statusBadge ${lastMode === "openai" ? "real" : ""}`}>{lastMode}</span>
+      </div>
+
+      <div className="taskCardBody">
+        <div className="taskCardHeader">
+          <div>
+            <h3>{project.name}</h3>
+            <p>
+              <CalendarClock size={14} />
+              {formatDateTime(project.updatedAt)}
+            </p>
+          </div>
+          <button className="primaryButton" onClick={onOpen}>
+            <FolderOpen size={16} />
+            继续制作
+          </button>
+        </div>
+
+        <div className="taskMeta">
+          <span>{project.assets.length} 个素材</span>
+          <span>{project.versions.length} 个版本</span>
+          <span>{progress.nextLabel}</span>
+        </div>
+
+        <div className="progressBlock" aria-label={`${progress.doneCount}/${progress.total} 已完成`}>
+          <div className="progressText">
+            <strong>{progress.percent}%</strong>
+            <span>
+              {progress.doneCount}/{progress.total} 已完成
+            </span>
+          </div>
+          <div className="progressTrack">
+            <span style={{ width: `${progress.percent}%` }} />
+          </div>
+        </div>
+
+        <div className="taskChecklist">
+          {progress.items.map((item) => (
+            <span className={item.done ? "done" : ""} key={item.key}>
+              {item.done ? <CheckCircle2 size={14} /> : <Circle size={14} />}
+              {item.label}
+            </span>
+          ))}
+        </div>
+
+        <details className="taskDetails">
+          <summary>查看详情</summary>
+          <div className="taskDetailGrid">
+            <span>人物照：{assetSummary.person}</span>
+            <span>站位图：{assetSummary.standing}</span>
+            <span>背景图：{assetSummary.background}</span>
+            <span>Logo：{assetSummary.logo}</span>
+            <span>最新阶段：{latestPreview ? stageLabel(latestPreview.stage) : "未生成"}</span>
+            <span>项目 ID：{project.id}</span>
+          </div>
+        </details>
+      </div>
+    </article>
+  );
+}
+
+function StatBlock({ label, value, icon }: { label: string; value: number; icon: React.ReactNode }) {
+  return (
+    <div className="statBlock">
+      <div>{icon}</div>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
 function Panel({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="panel">
@@ -513,6 +735,71 @@ function buildSteps(project: PosterProject, people: ProjectAsset[], background: 
     { title: "Logo 文案", detail: `${logo.length} 个 Logo`, done: logo.length > 0 },
     { title: "尺寸输出", detail: "3:4 / 9:16 / 2:3 / 自定义", done: project.versions.some((version) => version.url.startsWith("/exports")) }
   ];
+}
+
+function getProjectProgress(project: PosterProject) {
+  const peopleCount = project.assets.filter((asset) => asset.kind === "person").length;
+  const logoCount = project.assets.filter((asset) => asset.kind === "logo").length;
+  const items = [
+    { key: "people", label: "人物照", done: peopleCount >= 5 },
+    { key: "confirm", label: "人物确认", done: project.confirmedPeople },
+    { key: "background", label: "背景", done: project.versions.some((version) => version.stage === "background") },
+    { key: "logo", label: "Logo", done: logoCount > 0 },
+    { key: "export", label: "导出", done: project.versions.some((version) => version.url.startsWith("/exports")) }
+  ];
+  const doneCount = items.filter((item) => item.done).length;
+  const firstOpen = items.find((item) => !item.done);
+  return {
+    items,
+    doneCount,
+    total: items.length,
+    percent: Math.round((doneCount / items.length) * 100),
+    nextLabel: firstOpen ? `下一步：${firstOpen.label}` : "流程完成"
+  };
+}
+
+function getLatestPreview(project: PosterProject) {
+  return latestVersion(project);
+}
+
+function getNextStep(project: PosterProject) {
+  const peopleCount = project.assets.filter((asset) => asset.kind === "person").length;
+  if (project.peopleCount !== 5) return 0;
+  if (!project.assets.some((asset) => asset.kind === "standing")) return 1;
+  if (peopleCount < 5) return 2;
+  if (!latestVersion(project) || !project.confirmedPeople) return 3;
+  if (!project.versions.some((version) => version.stage === "background")) return 4;
+  if (!project.assets.some((asset) => asset.kind === "logo")) return 5;
+  return 6;
+}
+
+function summarizeAssets(assets: ProjectAsset[]) {
+  return {
+    person: assets.filter((asset) => asset.kind === "person").length,
+    standing: assets.filter((asset) => asset.kind === "standing").length,
+    background: assets.filter((asset) => asset.kind === "background").length,
+    logo: assets.filter((asset) => asset.kind === "logo").length
+  };
+}
+
+function upsertProject(projects: PosterProject[], project: PosterProject) {
+  const next = [project, ...projects.filter((item) => item.id !== project.id)];
+  return next.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+function formatDateTime(value: string | Date) {
+  const date = typeof value === "string" ? new Date(value) : value;
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  })
+    .format(date)
+    .replace(/\//g, "-");
 }
 
 function latestVersion(project: PosterProject | null) {
