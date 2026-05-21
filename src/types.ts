@@ -74,4 +74,12 @@ export interface BootstrapData {
     logo: string;
     background: string;
   };
+  modelConfig: {
+    imageModel: string;
+    textModel: string;
+    hasApiKey: boolean;
+    baseUrlHost: string;
+    imageBaseUrlHost: string;
+    textBaseUrlHost: string;
+  };
 }

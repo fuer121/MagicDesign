@@ -37,11 +37,15 @@ http://localhost:8787/
 
 ```bash
 OPENAI_API_KEY=你的服务端密钥
+OPENAI_BASE_URL=
+OPENAI_IMAGE_BASE_URL=
+OPENAI_TEXT_BASE_URL=
 OPENAI_IMAGE_MODEL=gpt-image-2
+OPENAI_TEXT_MODEL=gpt-5.5
 PORT=8787
 ```
 
-不要把 API Key 放到前端，也不要从 `APIKey.rtf` 直接给浏览器读取。当前实现只在 Node 服务端读取环境变量。
+不要把 API Key 放到前端，也不要从 `APIKey.rtf` 直接给浏览器读取。当前实现只在 Node 服务端读取环境变量。使用 OpenAI 兼容网关时，可在 `OPENAI_IMAGE_BASE_URL` 和 `OPENAI_TEXT_BASE_URL` 分别配置图片与文本接口；只填 `OPENAI_BASE_URL` 时两者共用同一个地址。地址可以填网关根地址，服务端会自动规范化到 `/v1`。
 
 ## 本地目录
 

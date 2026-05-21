@@ -214,6 +214,10 @@ function App() {
           <span>{project.versions.length} 个版本</span>
           <span>{project.assets.length} 个素材</span>
           <span>{project.confirmedPeople ? "人物已确认" : "等待人物确认"}</span>
+          <span>文本：{bootstrap.modelConfig.textModel}</span>
+          <span>图像：{bootstrap.modelConfig.imageModel}</span>
+          <span>图片接口：{bootstrap.modelConfig.imageBaseUrlHost}</span>
+          <span>文本接口：{bootstrap.modelConfig.textBaseUrlHost}</span>
         </div>
       </aside>
 

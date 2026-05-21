@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import OpenAI from "openai";
-import { GENERATED_DIR, OPENAI_API_KEY, OPENAI_IMAGE_MODEL } from "./config";
+import { GENERATED_DIR, OPENAI_API_KEY, OPENAI_IMAGE_BASE_URL, OPENAI_IMAGE_MODEL } from "./config";
 import { createMockImage } from "./mockImage";
 import { dataUrlFromBase64, id } from "./utils";
 
@@ -19,25 +19,37 @@ export async function generateImageWithFallback(request: GenerateImageRequest) {
     return { ...mock, model: OPENAI_IMAGE_MODEL, mode: "mock" as const };
   }
 
-  const client = new OpenAI({ apiKey: OPENAI_API_KEY });
+  const client = new OpenAI({ apiKey: OPENAI_API_KEY, baseURL: OPENAI_IMAGE_BASE_URL });
   const files = request.inputPaths
     .filter((filePath) => fs.existsSync(filePath))
     .map((filePath) => fs.createReadStream(filePath));
 
   try {
-    const response =
-      files.length > 0
-        ? await client.images.edit({
-            model: OPENAI_IMAGE_MODEL,
-            image: files as never,
-            prompt: request.prompt,
-            size: request.size ?? "auto"
-          } as never)
-        : await client.images.generate({
-            model: OPENAI_IMAGE_MODEL,
-            prompt: request.prompt,
-            size: request.size ?? "auto"
-          } as never);
+    let response;
+    let degradedToGenerate = false;
+    try {
+      response =
+        files.length > 0
+          ? await client.images.edit({
+              model: OPENAI_IMAGE_MODEL,
+              image: files as never,
+              prompt: request.prompt,
+              size: request.size ?? "1024x1536"
+            } as never)
+          : await client.images.generate({
+              model: OPENAI_IMAGE_MODEL,
+              prompt: request.prompt,
+              size: request.size ?? "1024x1536"
+            } as never);
+    } catch (error) {
+      if (!files.length || !isUnsupportedEditModel(error)) throw error;
+      degradedToGenerate = true;
+      response = await client.images.generate({
+        model: OPENAI_IMAGE_MODEL,
+        prompt: `${request.prompt}\n\n注意：当前图片编辑接口不可用，请根据上述人物与站位要求生成一张真实节目海报风格初稿。`,
+        size: request.size ?? "1024x1536"
+      } as never);
+    }
 
     const image = extractImage(response);
     if (!image) throw new Error("OpenAI image response did not include image data.");
@@ -60,6 +72,9 @@ export async function generateImageWithFallback(request: GenerateImageRequest) {
       height: undefined,
       model: OPENAI_IMAGE_MODEL,
       mode: "openai" as const,
+      note: degradedToGenerate
+        ? "Image edit endpoint does not support this model; used real image generation without source-image editing."
+        : undefined,
       dataUrl: image.b64 ? dataUrlFromBase64(image.b64) : undefined
     };
   } catch (error) {
@@ -70,6 +85,12 @@ export async function generateImageWithFallback(request: GenerateImageRequest) {
     });
     return { ...mock, model: OPENAI_IMAGE_MODEL, mode: "mock" as const };
   }
+}
+
+function isUnsupportedEditModel(error: unknown) {
+  const value = error as { status?: number; code?: string; message?: string; error?: { message?: string } };
+  const message = [value.message, value.error?.message].filter(Boolean).join(" ");
+  return value.status === 400 && /不支持模型|does not support|unsupported/i.test(message);
 }
 
 function extractImage(response: unknown): { b64?: string; url?: string } | null {
