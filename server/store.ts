@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { PROJECT_DIR } from "./config";
+import { OPENAI_IMAGE_MODEL, PROJECT_DIR } from "./config";
 import type { PosterProject, PosterVersion, ProjectAsset, ProjectNote } from "./types";
 import { id, nowIso } from "./utils";
 
@@ -15,7 +15,7 @@ export async function createProject(name = "未命名主视觉项目") {
     settings: {
       style: "高级节目主视觉 / 科技感商业 KV",
       ratio: "3:4",
-      model: process.env.OPENAI_IMAGE_MODEL ?? "gpt-image-2"
+      model: OPENAI_IMAGE_MODEL
     },
     assets: [],
     versions: [],

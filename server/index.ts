@@ -8,12 +8,19 @@ import {
   EXPORT_DIR,
   GENERATED_DIR,
   MATERIAL_DIR,
+  OPENAI_BASE_URL,
+  OPENAI_IMAGE_BASE_URL,
+  OPENAI_IMAGE_MODEL,
+  OPENAI_REVIEW_MODEL,
+  OPENAI_TEXT_BASE_URL,
+  OPENAI_TEXT_MODEL,
   PORT,
   PROJECT_DIR,
   PROMPT_FILES,
   UPLOAD_DIR
 } from "./config";
 import { generateImageWithFallback } from "./openaiImage";
+import { planImagePrompt } from "./promptPlanner";
 import {
   addAssets,
   addNote,
@@ -70,6 +77,15 @@ app.get("/api/bootstrap", async (_req, res, next) => {
         ],
         logo: "/海报素材/%E8%8A%82%E7%9B%AElogo.png",
         background: "/海报素材/%E7%A7%91%E6%8A%80%E6%84%9F%E9%A3%8E%E6%A0%BC%E5%8F%82%E8%80%83.jpg"
+      },
+      modelConfig: {
+        imageModel: OPENAI_IMAGE_MODEL,
+        textModel: OPENAI_TEXT_MODEL,
+        reviewModel: OPENAI_REVIEW_MODEL,
+        hasApiKey: Boolean(process.env.OPENAI_API_KEY),
+        baseUrlHost: OPENAI_BASE_URL ? new URL(OPENAI_BASE_URL).host : "api.openai.com",
+        imageBaseUrlHost: OPENAI_IMAGE_BASE_URL ? new URL(OPENAI_IMAGE_BASE_URL).host : "api.openai.com",
+        textBaseUrlHost: OPENAI_TEXT_BASE_URL ? new URL(OPENAI_TEXT_BASE_URL).host : "api.openai.com"
       }
     });
   } catch (error) {
@@ -183,11 +199,19 @@ app.post("/api/projects/:projectId/generate/:stage", async (req, res, next) => {
   try {
     const project = await readProject(req.params.projectId);
     const stage = req.params.stage as GenerationStage;
-    const prompt = await promptForStage(stage, req.body?.instruction);
+    const basePrompt = await promptForStage(stage);
+    const plan = await planImagePrompt({
+      stage,
+      basePrompt,
+      instruction: req.body?.instruction,
+      style: project.settings.style,
+      peopleCount: project.peopleCount,
+      ratio: project.settings.ratio
+    });
     const inputs = resolveInputs(project, stage, req.body?.assetIds ?? []);
     const result = await generateImageWithFallback({
       stage,
-      prompt,
+      prompt: plan.prompt,
       inputPaths: inputs.map((input) => input.path),
       note: req.body?.instruction,
       size: req.body?.size
@@ -198,12 +222,13 @@ app.post("/api/projects/:projectId/generate/:stage", async (req, res, next) => {
       stage,
       url: result.url,
       filename: result.filename,
-      prompt,
-      model: result.model,
+      prompt: plan.prompt,
+      model: `${plan.model} -> ${result.model}`,
       mode: result.mode,
       createdAt: nowIso(),
       inputs: inputs.map((input) => input.url),
-      note: req.body?.instruction,
+      note: [req.body?.instruction, plan.note, result.note].filter(Boolean).join("\n"),
+      errorLog: [plan.mode === "passthrough" ? plan.note : undefined, result.errorLog].filter(Boolean).join("\n") || undefined,
       ...dimensions
     };
     res.json(await addVersion(project.id, version));
@@ -255,16 +280,14 @@ app.listen(PORT, () => {
   console.log(`MagicDesign API listening on http://localhost:${PORT}`);
 });
 
-async function promptForStage(stage: GenerationStage, instruction?: string) {
+async function promptForStage(stage: GenerationStage) {
   const base =
     stage === "people" || stage === "peopleRevision"
       ? await readRtfAsText(PROMPT_FILES.people)
       : stage === "background" || stage === "backgroundRevision"
         ? await readRtfAsText(PROMPT_FILES.background)
         : await readRtfAsText(PROMPT_FILES.typography);
-
-  if (!instruction) return base;
-  return `${base}\n\n用户自然语言修改要求：\n${instruction}`;
+  return base;
 }
 
 function resolveInputs(

@@ -52,6 +52,7 @@ export interface PosterVersion {
   createdAt: string;
   inputs: string[];
   note?: string;
+  errorLog?: string;
   width?: number;
   height?: number;
 }
@@ -73,5 +74,14 @@ export interface BootstrapData {
     people: string[];
     logo: string;
     background: string;
+  };
+  modelConfig: {
+    imageModel: string;
+    textModel: string;
+    reviewModel: string;
+    hasApiKey: boolean;
+    baseUrlHost: string;
+    imageBaseUrlHost: string;
+    textBaseUrlHost: string;
   };
 }

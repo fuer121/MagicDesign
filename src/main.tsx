@@ -214,6 +214,11 @@ function App() {
           <span>{project.versions.length} 个版本</span>
           <span>{project.assets.length} 个素材</span>
           <span>{project.confirmedPeople ? "人物已确认" : "等待人物确认"}</span>
+          <span>文本：{bootstrap.modelConfig.textModel}</span>
+          <span>Review：{bootstrap.modelConfig.reviewModel}</span>
+          <span>图像：{bootstrap.modelConfig.imageModel}</span>
+          <span>图片接口：{bootstrap.modelConfig.imageBaseUrlHost}</span>
+          <span>文本接口：{bootstrap.modelConfig.textBaseUrlHost}</span>
         </div>
       </aside>
 
@@ -448,7 +453,13 @@ function VersionThumb({ version }: { version: PosterVersion }) {
       <img src={version.url} alt={version.stage} />
       <figcaption>
         <strong>{stageLabel(version.stage)}</strong>
-        <span>{version.mode}</span>
+        <span className={version.errorLog ? "modeWithWarning" : ""}>{version.mode}</span>
+        {version.errorLog && (
+          <details>
+            <summary>日志</summary>
+            <p>{version.errorLog}</p>
+          </details>
+        )}
       </figcaption>
     </figure>
   );

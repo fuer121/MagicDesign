@@ -294,7 +294,7 @@ button {
 }
 
 .versionThumb {
-  width: 86px;
+  width: 142px;
   flex: 0 0 auto;
   margin: 0;
   display: grid;
@@ -318,6 +318,30 @@ button {
 
 .versionThumb strong {
   color: #101828;
+}
+
+.modeWithWarning {
+  color: #b54708;
+  font-weight: 760;
+}
+
+.versionThumb details {
+  margin-top: 3px;
+}
+
+.versionThumb summary {
+  cursor: pointer;
+  color: #155eef;
+  font-weight: 760;
+}
+
+.versionThumb p {
+  margin: 4px 0 0;
+  max-height: 70px;
+  overflow: auto;
+  white-space: normal;
+  line-height: 1.35;
+  color: #667085;
 }
 
 .controlPanel {
