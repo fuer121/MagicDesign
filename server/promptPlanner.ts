@@ -86,7 +86,8 @@ function stageLabel(stage: GenerationStage) {
     peopleRevision: "人物自然语言修改",
     background: "背景与初稿融合",
     backgroundRevision: "按尺寸重新生成背景构图",
-    aiTypography: "Logo 与文案融合"
+    aiTypography: "Logo 与文案融合",
+    canvasExport: "Canvas 精确排版导出"
   };
   return labels[stage];
 }

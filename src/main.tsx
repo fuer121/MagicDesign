@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   Circle,
   ClipboardList,
+  Trash2,
   Download,
   FileImage,
   FolderOpen,
@@ -57,6 +58,8 @@ function App() {
   const [view, setView] = React.useState<ViewMode>("tasks");
   const [selectedStep, setSelectedStep] = React.useState(0);
   const [selectedTemplate, setSelectedTemplate] = React.useState(templates[0].url);
+  const [selectedStandingAssetId, setSelectedStandingAssetId] = React.useState("");
+  const [selectedPersonIds, setSelectedPersonIds] = React.useState<string[]>([]);
   const [instruction, setInstruction] = React.useState("");
   const [backgroundInstruction, setBackgroundInstruction] = React.useState("");
   const [copy, setCopy] = React.useState<PosterCopy>(defaultCopy);
@@ -81,10 +84,25 @@ function App() {
 
   React.useEffect(() => {
     if (view !== "studio" || !canvasRef.current) return;
-    const latest = latestVersion(project);
+    const latest = latestEditableVersion(project);
     const logo = latestLogo(project);
     void renderPoster(canvasRef.current, latest, logo, copy, layout, project?.settings.style ?? "KV Studio");
   }, [project, copy, layout, view]);
+
+  React.useEffect(() => {
+    if (view !== "studio" || !project) return;
+    setSelectedPersonIds((current) => {
+      const valid = current.filter((assetId) => project.assets.some((asset) => asset.id === assetId && asset.kind === "person"));
+      if (valid.length > 0) return valid.slice(0, 5);
+      return project.assets
+        .filter((asset) => asset.kind === "person")
+        .slice(0, 5)
+        .map((asset) => asset.id);
+    });
+    setSelectedStandingAssetId((current) =>
+      current && project.assets.some((asset) => asset.id === current && asset.kind === "standing") ? current : ""
+    );
+  }, [project, view]);
 
   async function load() {
     try {
@@ -116,8 +134,10 @@ function App() {
       const value = await task();
       if (isProject(value)) syncProject(value);
       onDone?.(value);
+      return value;
     } catch (err) {
       setError(messageOf(err));
+      return undefined;
     } finally {
       setBusy("");
     }
@@ -131,6 +151,25 @@ function App() {
     });
   }
 
+  async function deleteTask(targetProject: PosterProject) {
+    const confirmed = window.confirm(`确定删除任务「${targetProject.name}」吗？\n任务记录会从任务管理中移除，已上传素材文件暂不清理。`);
+    if (!confirmed) return;
+    await run("删除任务", () => api.deleteProject(targetProject.id), () => {
+      setBootstrap((current) =>
+        current
+          ? {
+              ...current,
+              projects: current.projects.filter((item) => item.id !== targetProject.id)
+            }
+          : current
+      );
+      if (project?.id === targetProject.id) {
+        setProject(null);
+        setView("tasks");
+      }
+    });
+  }
+
   function openProject(nextProject: PosterProject) {
     syncProject(nextProject);
     setSelectedStep(getNextStep(nextProject));
@@ -139,42 +178,75 @@ function App() {
 
   async function uploadFiles(kind: AssetKind, files: FileList | null) {
     if (!project || !files?.length) return;
-    await run("上传素材中", () => api.upload(project.id, kind, Array.from(files)));
-  }
-
-  async function uploadTemplateFromUrl() {
-    if (!project) return;
-    const response = await fetch(selectedTemplate);
-    const blob = await response.blob();
-    const file = new File([blob], selectedTemplate.split("/").pop() ?? "standing.svg", { type: blob.type });
-    await run("写入站位模板", () => api.upload(project.id, "standing", [file]));
+    await run("上传素材中", () => api.upload(project.id, kind, Array.from(files)), (nextProject) => {
+      if (!isProject(nextProject)) return;
+      if (kind === "standing") {
+        const latestStanding = nextProject.assets.filter((asset) => asset.kind === "standing").at(-1);
+        if (latestStanding) {
+          setSelectedStandingAssetId(latestStanding.id);
+          setSelectedTemplate("");
+        }
+      }
+    });
   }
 
   async function generatePeople() {
     if (!project) return;
-    await uploadTemplateFromUrl();
-    await run("生成人物群像", () =>
-      api.generate(project.id, "people", `${instruction}\n海报人数：5 人。站位模板：${selectedTemplate}`)
+    const standingAsset = selectedStandingAssetId ? project.assets.find((asset) => asset.id === selectedStandingAssetId) : undefined;
+    const assetIds = [...selectedPersonIds, ...(standingAsset ? [standingAsset.id] : [])];
+    const nextProject = await run("生成人物群像", () =>
+      api.generate(project.id, "people", `${instruction}\n海报人数：5 人。`, assetIds, undefined, {
+        standingTemplateUrl: standingAsset ? undefined : selectedTemplate
+      })
     );
-    setSelectedStep(3);
+    if (isProject(nextProject)) setSelectedStep(3);
   }
 
   async function revisePeople() {
     if (!project) return;
-    await run("修改人物初稿", () => api.generate(project.id, "peopleRevision", instruction));
+    const standingAsset = selectedStandingAssetId ? project.assets.find((asset) => asset.id === selectedStandingAssetId) : undefined;
+    const assetIds = [...selectedPersonIds, ...(standingAsset ? [standingAsset.id] : [])];
+    await run("修改人物初稿", () =>
+      api.generate(project.id, "peopleRevision", instruction, assetIds, undefined, {
+        standingTemplateUrl: standingAsset ? undefined : selectedTemplate
+      })
+    );
   }
 
   async function generateBackground() {
     if (!project) return;
-    await run("融合背景氛围", () => api.generate(project.id, "background", backgroundInstruction));
-    setSelectedStep(5);
+    const nextProject = await run(
+      "融合背景氛围",
+      () => api.generate(project.id, "background", backgroundInstruction, backgroundAssets.map((asset) => asset.id))
+    );
+    if (isProject(nextProject)) setSelectedStep(5);
+  }
+
+  async function generateAiTypography() {
+    if (!project) return;
+    const latestLogoAsset = latestLogo(project);
+    const nextProject = await run("生成 AI 最终海报", () =>
+      api.generate(project.id, "aiTypography", "请融合固定 Logo 与文案，生成最终版海报。", latestLogoAsset ? [latestLogoAsset.id] : [], undefined, {
+        copy
+      })
+    );
+    if (isProject(nextProject)) setSelectedStep(6);
+  }
+
+  async function deleteAsset(assetId: string) {
+    if (!project) return;
+    await run("删除素材", () => api.deleteAsset(project.id, assetId), (nextProject) => {
+      if (!isProject(nextProject)) return;
+      setSelectedPersonIds((current) => current.filter((id) => nextProject.assets.some((asset) => asset.id === id)));
+      if (!nextProject.assets.some((asset) => asset.id === selectedStandingAssetId)) setSelectedStandingAssetId("");
+    });
   }
 
   async function exportCanvas(targetLayout = layout) {
     if (!project || !canvasRef.current) return;
     await renderPoster(
       canvasRef.current,
-      latestVersion(project),
+      latestEditableVersion(project),
       latestLogo(project),
       copy,
       targetLayout,
@@ -215,6 +287,7 @@ function App() {
         busy={busy}
         error={error}
         onCreateTask={() => void createTask()}
+        onDeleteProject={(targetProject) => void deleteTask(targetProject)}
         onOpenProject={openProject}
         onRefresh={() => void load()}
       />
@@ -224,7 +297,13 @@ function App() {
   const peopleAssets = project.assets.filter((asset) => asset.kind === "person");
   const backgroundAssets = project.assets.filter((asset) => asset.kind === "background");
   const logoAssets = project.assets.filter((asset) => asset.kind === "logo");
-  const latest = latestVersion(project);
+  const standingAssets = project.assets.filter((asset) => asset.kind === "standing");
+  const latest = latestEditableVersion(project);
+  const latestPeopleDraft = latestOpenAiStageVersion(project, ["people", "peopleRevision"]);
+  const selectedPeople = selectedPersonIds
+    .map((assetId) => peopleAssets.find((asset) => asset.id === assetId))
+    .filter(Boolean) as ProjectAsset[];
+  const hasStandingInput = Boolean(selectedStandingAssetId || selectedTemplate);
   const steps = buildSteps(project, peopleAssets, backgroundAssets, logoAssets);
 
   return (
@@ -328,9 +407,12 @@ function App() {
                 <div className="templateGrid">
                   {templates.map((template) => (
                     <button
-                      className={`templateCard ${selectedTemplate === template.url ? "selected" : ""}`}
+                      className={`templateCard ${!selectedStandingAssetId && selectedTemplate === template.url ? "selected" : ""}`}
                       key={template.id}
-                      onClick={() => setSelectedTemplate(template.url)}
+                      onClick={() => {
+                        setSelectedTemplate(template.url);
+                        setSelectedStandingAssetId("");
+                      }}
                     >
                       <img src={template.url} alt={template.name} />
                       <strong>{template.name}</strong>
@@ -339,6 +421,16 @@ function App() {
                   ))}
                 </div>
                 <UploadBox label="上传补充站位线图" accept="image/*,.svg" onFiles={(files) => void uploadFiles("standing", files)} />
+                <SelectableAssetGrid
+                  assets={standingAssets}
+                  selectedIds={selectedStandingAssetId ? [selectedStandingAssetId] : []}
+                  onToggle={(asset) => {
+                    setSelectedStandingAssetId(asset.id);
+                    setSelectedTemplate("");
+                  }}
+                  onDelete={(asset) => void deleteAsset(asset.id)}
+                  mode="single"
+                />
               </Panel>
             )}
 
@@ -349,32 +441,48 @@ function App() {
                   <ImagePlus size={16} />
                   使用目录中的示例素材
                 </button>
-                <AssetGrid assets={peopleAssets} />
-                <button className="primaryButton wide" disabled={peopleAssets.length === 0 || Boolean(busy)} onClick={() => void generatePeople()}>
+                <p className="helperText">请选择恰好 5 张人物定妆照，模型会按选择顺序提交人物图。</p>
+                <SelectableAssetGrid
+                  assets={peopleAssets}
+                  selectedIds={selectedPersonIds}
+                  onToggle={(asset) =>
+                    setSelectedPersonIds((current) =>
+                      current.includes(asset.id)
+                        ? current.filter((id) => id !== asset.id)
+                        : current.length < 5
+                          ? [...current, asset.id]
+                          : current
+                    )
+                  }
+                  mode="multi"
+                />
+                <button className="primaryButton wide" disabled={selectedPeople.length !== 5 || !hasStandingInput || Boolean(busy)} onClick={() => void generatePeople()}>
                   <Sparkles size={16} />
-                  生成人物群像初稿
+                  生成人物群像初稿（{selectedPeople.length}/5）
                 </button>
+                {!hasStandingInput && <p className="warningText">需要先选择或上传一张站位线稿。</p>}
               </Panel>
             )}
 
             {selectedStep === 3 && (
               <Panel title="确认与修改人物" icon={<BadgeCheck size={18} />}>
-                <p className="helperText">海报感优先，但这里需要人工确认人物是否可用，再进入背景融合。</p>
+                <p className="helperText">海报感优先，但这里需要人工确认真实模型返回的人物是否可用，再进入背景融合。</p>
                 <TextArea label="自然语言修改" value={instruction} onChange={setInstruction} placeholder="例如：让中间人物更有主 C 位气场，两侧人物站位更紧凑。" />
                 <div className="buttonRow">
-                  <button className="ghostButton" disabled={!latest || Boolean(busy)} onClick={() => void revisePeople()}>
+                  <button className="ghostButton" disabled={!latestPeopleDraft || Boolean(busy)} onClick={() => void revisePeople()}>
                     <MessageSquareText size={16} />
                     按描述修改
                   </button>
                   <button
                     className="primaryButton"
-                    disabled={!latest || Boolean(busy)}
+                    disabled={!latestPeopleDraft || Boolean(busy)}
                     onClick={() => void run("确认人物", () => api.confirmPeople(project.id, true), setProject)}
                   >
                     <BadgeCheck size={16} />
                     人物可用
                   </button>
                 </div>
+                {!latestPeopleDraft && <p className="warningText">还没有真实模型返回的人物群像，模型失败产生的本地 mock 不能确认。</p>}
               </Panel>
             )}
 
@@ -383,11 +491,16 @@ function App() {
                 <UploadBox label="上传背景元素参考图" accept="image/*" multiple onFiles={(files) => void uploadFiles("background", files)} />
                 <AssetGrid assets={backgroundAssets} />
                 <TextArea label="背景融合要求" value={backgroundInstruction} onChange={setBackgroundInstruction} placeholder="例如：科技感蓝色舞台空间，光线统一，背景不要喧宾夺主。" />
-                <button className="primaryButton wide" disabled={!project.confirmedPeople || Boolean(busy)} onClick={() => void generateBackground()}>
+                <button
+                  className="primaryButton wide"
+                  disabled={!project.confirmedPeople || backgroundAssets.length === 0 || Boolean(busy)}
+                  onClick={() => void generateBackground()}
+                >
                   <Palette size={16} />
                   融合背景
                 </button>
                 {!project.confirmedPeople && <p className="warningText">需要先在上一步确认人物可用。</p>}
+                {backgroundAssets.length === 0 && <p className="warningText">需要至少上传一张背景参考图。</p>}
               </Panel>
             )}
 
@@ -399,6 +512,10 @@ function App() {
                 <TextInput label="Slogan" value={copy.slogan} onChange={(value) => setCopy({ ...copy, slogan: value })} />
                 <TextInput label="时间 / 地点" value={copy.meta} onChange={(value) => setCopy({ ...copy, meta: value })} />
                 <TextArea label="补充信息" value={copy.extra} onChange={(value) => setCopy({ ...copy, extra: value })} />
+                <button className="primaryButton wide" disabled={logoAssets.length === 0 || !latest || Boolean(busy)} onClick={() => void generateAiTypography()}>
+                  <Sparkles size={16} />
+                  AI 生成最终海报
+                </button>
               </Panel>
             )}
 
@@ -437,7 +554,18 @@ function App() {
                 </button>
                 <button
                   className="ghostButton wide"
-                  onClick={() => void run("重生成当前尺寸构图", () => api.generate(project.id, "backgroundRevision", `针对 ${layout.ratio} 尺寸重新生成构图，保持人物和风格一致。`))}
+                  onClick={() =>
+                    void run(
+                      "重生成当前尺寸构图",
+                      () =>
+                        api.generate(
+                          project.id,
+                          "backgroundRevision",
+                          `针对 ${layout.ratio} 尺寸重新生成构图，保持人物和风格一致。`,
+                          backgroundAssets.map((asset) => asset.id)
+                        )
+                    )
+                  }
                 >
                   <Sparkles size={16} />
                   高级：为当前尺寸重生成
@@ -456,6 +584,7 @@ function TaskManagerPage({
   busy,
   error,
   onCreateTask,
+  onDeleteProject,
   onOpenProject,
   onRefresh
 }: {
@@ -463,6 +592,7 @@ function TaskManagerPage({
   busy: string;
   error: string;
   onCreateTask: () => void;
+  onDeleteProject: (project: PosterProject) => void;
   onOpenProject: (project: PosterProject) => void;
   onRefresh: () => void;
 }) {
@@ -515,7 +645,7 @@ function TaskManagerPage({
       {projects.length > 0 ? (
         <section className="taskGrid" aria-label="海报任务列表">
           {projects.map((item) => (
-            <TaskCard key={item.id} project={item} onOpen={() => onOpenProject(item)} />
+            <TaskCard key={item.id} project={item} onDelete={() => onDeleteProject(item)} onOpen={() => onOpenProject(item)} />
           ))}
         </section>
       ) : (
@@ -535,10 +665,10 @@ function TaskManagerPage({
   );
 }
 
-function TaskCard({ project, onOpen }: { project: PosterProject; onOpen: () => void }) {
+function TaskCard({ project, onDelete, onOpen }: { project: PosterProject; onDelete: () => void; onOpen: () => void }) {
   const progress = getProjectProgress(project);
   const latestPreview = getLatestPreview(project);
-  const lastMode = latestPreview?.mode ?? "未生成";
+  const lastMode = latestPreview ? (latestPreview.mode === "openai" ? "openai" : "本地 mock") : "未生成";
   const assetSummary = summarizeAssets(project.assets);
 
   return (
@@ -552,7 +682,9 @@ function TaskCard({ project, onOpen }: { project: PosterProject; onOpen: () => v
             <span>暂无预览</span>
           </div>
         )}
-        <span className={`statusBadge ${lastMode === "openai" ? "real" : ""}`}>{lastMode}</span>
+        <span className={`statusBadge ${latestPreview?.mode === "openai" ? "real" : latestPreview?.mode === "mock" ? "mock" : ""}`}>
+          {lastMode}
+        </span>
       </div>
 
       <div className="taskCardBody">
@@ -564,10 +696,16 @@ function TaskCard({ project, onOpen }: { project: PosterProject; onOpen: () => v
               {formatDateTime(project.updatedAt)}
             </p>
           </div>
-          <button className="primaryButton" onClick={onOpen}>
-            <FolderOpen size={16} />
-            继续制作
-          </button>
+          <div className="taskCardActions">
+            <button className="ghostButton dangerButton" onClick={onDelete}>
+              <Trash2 size={16} />
+              删除
+            </button>
+            <button className="primaryButton" onClick={onOpen}>
+              <FolderOpen size={16} />
+              继续制作
+            </button>
+          </div>
         </div>
 
         <div className="taskMeta">
@@ -669,13 +807,51 @@ function AssetGrid({ assets }: { assets: ProjectAsset[] }) {
   );
 }
 
+function SelectableAssetGrid({
+  assets,
+  selectedIds,
+  mode,
+  onToggle,
+  onDelete
+}: {
+  assets: ProjectAsset[];
+  selectedIds: string[];
+  mode: "single" | "multi";
+  onToggle: (asset: ProjectAsset) => void;
+  onDelete?: (asset: ProjectAsset) => void;
+}) {
+  if (!assets.length) return <p className="emptyHint">暂无上传素材。</p>;
+  return (
+    <div className="assetGrid selectableAssetGrid">
+      {assets.map((asset) => {
+        const selectedIndex = selectedIds.indexOf(asset.id);
+        return (
+          <figure className={selectedIndex >= 0 ? "selected" : ""} key={asset.id}>
+            <button className="assetSelectButton" type="button" onClick={() => onToggle(asset)}>
+              <img src={asset.url} alt={asset.originalName} />
+              <span>{selectedIndex >= 0 ? (mode === "multi" ? selectedIndex + 1 : "已选") : "选择"}</span>
+            </button>
+            <figcaption>{asset.originalName}</figcaption>
+            {onDelete && (
+              <button className="assetDeleteButton" type="button" aria-label={`删除 ${asset.originalName}`} onClick={() => onDelete(asset)}>
+                <Trash2 size={13} />
+              </button>
+            )}
+          </figure>
+        );
+      })}
+    </div>
+  );
+}
+
 function VersionThumb({ version }: { version: PosterVersion }) {
+  const modeLabel = version.mode === "openai" ? "openai" : "本地 mock";
   return (
     <figure className="versionThumb">
       <img src={version.url} alt={version.stage} />
       <figcaption>
         <strong>{stageLabel(version.stage)}</strong>
-        <span className={version.errorLog ? "modeWithWarning" : ""}>{version.mode}</span>
+        <span className={version.mode === "mock" || version.errorLog ? "modeWithWarning" : ""}>{modeLabel}</span>
         {version.errorLog && (
           <details>
             <summary>日志</summary>
@@ -728,10 +904,18 @@ function TextArea({
 function buildSteps(project: PosterProject, people: ProjectAsset[], background: ProjectAsset[], logo: ProjectAsset[]) {
   return [
     { title: "选择人数", detail: "V1 固定 5 人", done: project.peopleCount === 5 },
-    { title: "站位线图", detail: "2 个内置模板", done: project.assets.some((asset) => asset.kind === "standing") },
+    { title: "站位线图", detail: "2 个内置模板", done: hasStandingInputHistory(project) },
     { title: "人物定妆照", detail: `${people.length} 张已上传`, done: people.length >= 5 },
-    { title: "人物初稿确认", detail: project.confirmedPeople ? "已确认" : "需人工确认", done: project.confirmedPeople },
-    { title: "背景融合", detail: `${background.length} 张参考图`, done: project.versions.some((version) => version.stage === "background") },
+    {
+      title: "人物初稿确认",
+      detail: project.confirmedPeople ? "已确认" : "需人工确认",
+      done: Boolean(project.confirmedPeople && latestOpenAiStageVersion(project, ["people", "peopleRevision"]))
+    },
+    {
+      title: "背景融合",
+      detail: `${background.length} 张参考图`,
+      done: Boolean(latestOpenAiStageVersion(project, ["background", "backgroundRevision"]))
+    },
     { title: "Logo 文案", detail: `${logo.length} 个 Logo`, done: logo.length > 0 },
     { title: "尺寸输出", detail: "3:4 / 9:16 / 2:3 / 自定义", done: project.versions.some((version) => version.url.startsWith("/exports")) }
   ];
@@ -742,8 +926,8 @@ function getProjectProgress(project: PosterProject) {
   const logoCount = project.assets.filter((asset) => asset.kind === "logo").length;
   const items = [
     { key: "people", label: "人物照", done: peopleCount >= 5 },
-    { key: "confirm", label: "人物确认", done: project.confirmedPeople },
-    { key: "background", label: "背景", done: project.versions.some((version) => version.stage === "background") },
+    { key: "confirm", label: "人物确认", done: Boolean(project.confirmedPeople && latestOpenAiStageVersion(project, ["people", "peopleRevision"])) },
+    { key: "background", label: "背景", done: Boolean(latestOpenAiStageVersion(project, ["background", "backgroundRevision"])) },
     { key: "logo", label: "Logo", done: logoCount > 0 },
     { key: "export", label: "导出", done: project.versions.some((version) => version.url.startsWith("/exports")) }
   ];
@@ -765,12 +949,19 @@ function getLatestPreview(project: PosterProject) {
 function getNextStep(project: PosterProject) {
   const peopleCount = project.assets.filter((asset) => asset.kind === "person").length;
   if (project.peopleCount !== 5) return 0;
-  if (!project.assets.some((asset) => asset.kind === "standing")) return 1;
+  if (!hasStandingInputHistory(project)) return 1;
   if (peopleCount < 5) return 2;
-  if (!latestVersion(project) || !project.confirmedPeople) return 3;
-  if (!project.versions.some((version) => version.stage === "background")) return 4;
+  if (!latestOpenAiStageVersion(project, ["people", "peopleRevision"]) || !project.confirmedPeople) return 3;
+  if (!latestOpenAiStageVersion(project, ["background", "backgroundRevision"])) return 4;
   if (!project.assets.some((asset) => asset.kind === "logo")) return 5;
   return 6;
+}
+
+function hasStandingInputHistory(project: PosterProject) {
+  return (
+    project.assets.some((asset) => asset.kind === "standing") ||
+    project.versions.some((version) => version.inputs.some((input) => input.startsWith("/standing-templates/")))
+  );
 }
 
 function summarizeAssets(assets: ProjectAsset[]) {
@@ -806,6 +997,22 @@ function latestVersion(project: PosterProject | null) {
   return project?.versions.find((version) => version.url.startsWith("/generated") || version.url.startsWith("/exports"));
 }
 
+function latestEditableVersion(project: PosterProject | null) {
+  return project?.versions.find(
+    (version) =>
+      version.url.startsWith("/generated") &&
+      version.mode === "openai" &&
+      (version.stage === "background" ||
+        version.stage === "backgroundRevision" ||
+        version.stage === "peopleRevision" ||
+        version.stage === "people")
+  );
+}
+
+function latestOpenAiStageVersion(project: PosterProject | null, stages: string[]) {
+  return project?.versions.find((version) => version.mode === "openai" && stages.includes(version.stage));
+}
+
 function latestLogo(project: PosterProject | null) {
   return project?.assets.filter((asset) => asset.kind === "logo").at(-1);
 }
@@ -816,7 +1023,8 @@ function stageLabel(stage: string) {
     peopleRevision: "人物修改",
     background: "背景融合",
     backgroundRevision: "尺寸重生成",
-    aiTypography: "导出"
+    aiTypography: "AI 最终海报",
+    canvasExport: "Canvas 导出"
   };
   return labels[stage] ?? stage;
 }

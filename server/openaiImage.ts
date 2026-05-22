@@ -11,6 +11,7 @@ export interface GenerateImageRequest {
   inputPaths: string[];
   note?: string;
   size?: string;
+  allowMockFallback?: boolean;
 }
 
 export interface GeneratedImageResult {
@@ -27,7 +28,12 @@ export interface GeneratedImageResult {
 }
 
 export async function generateImageWithFallback(request: GenerateImageRequest): Promise<GeneratedImageResult> {
+  const allowMockFallback = request.allowMockFallback ?? request.inputPaths.length === 0;
+
   if (!OPENAI_API_KEY) {
+    if (!allowMockFallback) {
+      throw imageGenerationError("图像模型未配置 OPENAI_API_KEY，无法执行真实素材融合。", 500);
+    }
     const mock = await createMockImage(request);
     return { ...mock, model: OPENAI_IMAGE_MODEL, mode: "mock" as const, errorLog: "OPENAI_API_KEY is not configured." };
   }
@@ -37,7 +43,7 @@ export async function generateImageWithFallback(request: GenerateImageRequest): 
   try {
     const response = await client.images.generate({
       model: OPENAI_IMAGE_MODEL,
-      prompt: `${request.prompt}\n\n当前系统固定使用 /v1/images/generations 生图端点；上传素材只作为业务上下文和版本记录，不作为图片编辑输入提交。`,
+      prompt: composeGenerationPrompt(request),
       size: request.size ?? "1024x1536"
     } as never);
 
@@ -62,11 +68,19 @@ export async function generateImageWithFallback(request: GenerateImageRequest): 
       height: undefined,
       model: OPENAI_IMAGE_MODEL,
       mode: "openai" as const,
-      note: "Used /v1/images/generations endpoint.",
+      note:
+        request.inputPaths.length > 0
+          ? `Used /v1/images/generations endpoint. ${request.inputPaths.length} selected input image path(s) were recorded for traceability, but this endpoint does not upload image files.`
+          : "Used /v1/images/generations endpoint.",
       dataUrl: image.b64 ? dataUrlFromBase64(image.b64) : undefined
     };
   } catch (error) {
     const errorLog = summarizeOpenAIError(error);
+    if (!allowMockFallback) {
+      console.error("[openai-image] real image request failed:", errorLog);
+      throw imageGenerationError(`图像模型调用失败，未生成本地 mock：${errorLog}`, statusCodeFromOpenAIError(error));
+    }
+
     console.error("[openai-image] falling back to mock image:", errorLog);
     const mock = await createMockImage({
       ...request,
@@ -74,6 +88,25 @@ export async function generateImageWithFallback(request: GenerateImageRequest): 
     });
     return { ...mock, model: OPENAI_IMAGE_MODEL, mode: "mock" as const, errorLog };
   }
+}
+
+function imageGenerationError(message: string, statusCode: number) {
+  const error = new Error(message);
+  Object.assign(error, { statusCode });
+  return error;
+}
+
+function statusCodeFromOpenAIError(error: unknown) {
+  const status = Number((error as { status?: number })?.status);
+  return Number.isFinite(status) && status >= 400 && status <= 599 ? status : 502;
+}
+
+function composeGenerationPrompt(request: GenerateImageRequest) {
+  if (request.inputPaths.length === 0) return request.prompt;
+  return [
+    request.prompt,
+    "系统执行说明：当前代理通道使用 /v1/images/generations 端点生成图片；用户选择的素材会作为项目 inputs 记录和业务约束，但该端点不会上传或编辑原始图片文件。请尽量按照 Prompt 中的人物数量、站位线稿、背景和 Logo 文案要求生成结果。"
+  ].join("\n\n");
 }
 
 function summarizeOpenAIError(error: unknown) {

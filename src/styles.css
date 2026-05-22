@@ -215,6 +215,10 @@ button {
   background: #067647;
 }
 
+.statusBadge.mock {
+  background: #b54708;
+}
+
 .taskCardBody {
   min-width: 0;
   padding: 16px;
@@ -247,8 +251,26 @@ button {
   font-size: 12px;
 }
 
-.taskCardHeader .primaryButton {
+.taskCardActions {
   flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.taskCardHeader .primaryButton,
+.taskCardHeader .ghostButton {
+  flex: 0 0 auto;
+}
+
+.dangerButton {
+  color: #b42318;
+  border-color: #fecdca;
+  background: #fff7f6;
+}
+
+.dangerButton:hover {
+  background: #fef3f2;
 }
 
 .taskMeta {
@@ -767,7 +789,8 @@ button {
 }
 
 .templateCard.selected,
-.layoutCard.selected {
+.layoutCard.selected,
+.selectableAssetGrid figure.selected img {
   border-color: #155eef;
   box-shadow: 0 0 0 3px rgba(21, 94, 239, 0.12);
 }
@@ -821,6 +844,7 @@ button {
 }
 
 .assetGrid figure {
+  position: relative;
   margin: 0;
   min-width: 0;
 }
@@ -840,6 +864,50 @@ button {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.assetSelectButton {
+  position: relative;
+  width: 100%;
+  display: block;
+  padding: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #ffffff;
+  text-align: left;
+}
+
+.assetSelectButton span {
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  min-height: 22px;
+  min-width: 22px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  padding: 0 7px;
+  background: rgba(16, 24, 40, 0.76);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.selectableAssetGrid figure.selected .assetSelectButton span {
+  background: #155eef;
+}
+
+.assetDeleteButton {
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(180, 35, 24, 0.92);
+  color: #ffffff;
 }
 
 .field {

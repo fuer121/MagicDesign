@@ -54,9 +54,22 @@ export async function updateProject(projectId: string, patch: Partial<PosterProj
   return next;
 }
 
+export async function deleteProject(projectId: string) {
+  const file = path.join(PROJECT_DIR, `${projectId}.json`);
+  await fs.rm(file, { force: true });
+  return { ok: true, projectId };
+}
+
 export async function addAssets(projectId: string, assets: ProjectAsset[]) {
   const project = await readProject(projectId);
   project.assets.push(...assets);
+  await saveProject(project);
+  return project;
+}
+
+export async function removeAsset(projectId: string, assetId: string) {
+  const project = await readProject(projectId);
+  project.assets = project.assets.filter((asset) => asset.id !== assetId);
   await saveProject(project);
   return project;
 }
