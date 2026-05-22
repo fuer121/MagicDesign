@@ -3,7 +3,8 @@ export type GenerationStage =
   | "peopleRevision"
   | "background"
   | "backgroundRevision"
-  | "aiTypography";
+  | "aiTypography"
+  | "canvasExport";
 
 export type AssetKind = "person" | "standing" | "background" | "logo" | "copy" | "generated" | "export";
 

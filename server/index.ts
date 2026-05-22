@@ -27,11 +27,13 @@ import {
   addVersion,
   confirmPeople,
   createProject,
+  deleteProject,
   listProjects,
+  removeAsset,
   readProject,
   updateProject
 } from "./store";
-import type { AssetKind, GenerationStage, PosterVersion } from "./types";
+import type { AssetKind, GenerationStage, PosterVersion, ProjectAsset } from "./types";
 import { assetFromFile, ensureDirs, id, imageSize, nowIso, readRtfAsText, safeName } from "./utils";
 
 await ensureDirs([UPLOAD_DIR, GENERATED_DIR, EXPORT_DIR, PROJECT_DIR]);
@@ -126,6 +128,14 @@ app.patch("/api/projects/:projectId", async (req, res, next) => {
   }
 });
 
+app.delete("/api/projects/:projectId", async (req, res, next) => {
+  try {
+    res.json(await deleteProject(req.params.projectId));
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post("/api/projects/:projectId/confirm-people", async (req, res, next) => {
   try {
     res.json(await confirmPeople(req.params.projectId, Boolean(req.body?.confirmed)));
@@ -150,6 +160,14 @@ app.post("/api/projects/:projectId/upload/:kind", upload.array("files"), async (
     const projectId = String(req.params.projectId);
     const project = await addAssets(projectId, assets);
     res.json(project);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/api/projects/:projectId/assets/:assetId", async (req, res, next) => {
+  try {
+    res.json(await removeAsset(req.params.projectId, req.params.assetId));
   } catch (error) {
     next(error);
   }
@@ -200,21 +218,26 @@ app.post("/api/projects/:projectId/generate/:stage", async (req, res, next) => {
     const project = await readProject(req.params.projectId);
     const stage = req.params.stage as GenerationStage;
     const basePrompt = await promptForStage(stage);
+    const inputs = await resolveInputs(project, stage, {
+      assetIds: Array.isArray(req.body?.assetIds) ? req.body.assetIds : [],
+      standingTemplateUrl: typeof req.body?.standingTemplateUrl === "string" ? req.body.standingTemplateUrl : undefined
+    });
+    const instruction = composeInstruction(req.body?.instruction, req.body?.copy);
     const plan = await planImagePrompt({
       stage,
       basePrompt,
-      instruction: req.body?.instruction,
+      instruction,
       style: project.settings.style,
       peopleCount: project.peopleCount,
       ratio: project.settings.ratio
     });
-    const inputs = resolveInputs(project, stage, req.body?.assetIds ?? []);
     const result = await generateImageWithFallback({
       stage,
       prompt: plan.prompt,
       inputPaths: inputs.map((input) => input.path),
-      note: req.body?.instruction,
-      size: req.body?.size
+      note: instruction,
+      size: req.body?.size,
+      allowMockFallback: inputs.length === 0
     });
     const dimensions = await imageSize(result.path);
     const version: PosterVersion = {
@@ -227,7 +250,7 @@ app.post("/api/projects/:projectId/generate/:stage", async (req, res, next) => {
       mode: result.mode,
       createdAt: nowIso(),
       inputs: inputs.map((input) => input.url),
-      note: [req.body?.instruction, plan.note, result.note].filter(Boolean).join("\n"),
+      note: [instruction, plan.note, result.note].filter(Boolean).join("\n"),
       errorLog: [plan.mode === "passthrough" ? plan.note : undefined, result.errorLog].filter(Boolean).join("\n") || undefined,
       ...dimensions
     };
@@ -253,7 +276,7 @@ app.post("/api/projects/:projectId/export", async (req, res, next) => {
     const metadata = await sharp(outPath).metadata();
     const version: PosterVersion = {
       id: id("version"),
-      stage: "aiTypography",
+      stage: "canvasExport",
       url: `/exports/${encodeURIComponent(filename)}`,
       filename,
       prompt: "Deterministic Canvas typography export",
@@ -273,7 +296,8 @@ app.post("/api/projects/:projectId/export", async (req, res, next) => {
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(error);
-  res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  const statusCode = typeof error === "object" && error && "statusCode" in error ? Number(error.statusCode) : 500;
+  res.status(Number.isFinite(statusCode) ? statusCode : 500).json({ error: error instanceof Error ? error.message : String(error) });
 });
 
 app.listen(PORT, () => {
@@ -293,36 +317,123 @@ async function promptForStage(stage: GenerationStage) {
 function resolveInputs(
   project: Awaited<ReturnType<typeof readProject>>,
   stage: GenerationStage,
-  requestedAssetIds: string[]
+  request: { assetIds: string[]; standingTemplateUrl?: string }
+) {
+  const selectedAssets = selectInputs(project, stage, request);
+  return Promise.all(
+    selectedAssets
+      .flatMap((asset) => (asset ? [asset] : []))
+      .map(async (asset) => {
+        const url = asset.url;
+        const filename = "filename" in asset ? asset.filename : path.basename(url);
+        const directory = url.startsWith("/generated")
+          ? GENERATED_DIR
+          : url.startsWith("/exports")
+            ? EXPORT_DIR
+            : url.startsWith("/standing-templates")
+              ? path.join(process.cwd(), "public", "standing-templates")
+              : UPLOAD_DIR;
+        const resolvedPath = path.join(directory, decodeURIComponent(filename));
+        await fs.access(resolvedPath);
+        return { url, path: resolvedPath };
+      })
+  );
+}
+
+function selectInputs(
+  project: Awaited<ReturnType<typeof readProject>>,
+  stage: GenerationStage,
+  request: { assetIds: string[]; standingTemplateUrl?: string }
 ) {
   const byId = new Map(project.assets.map((asset) => [asset.id, asset]));
-  const requested = requestedAssetIds.flatMap((assetId) => {
+  const requested = request.assetIds.flatMap((assetId) => {
     const asset = byId.get(assetId);
     return asset ? [asset] : [];
   });
-  const assets =
-    requested.length > 0
-      ? requested
-      : stage === "people"
-        ? project.assets.filter((asset) => asset.kind === "person" || asset.kind === "standing")
-        : stage === "peopleRevision"
-          ? [
-              project.versions[0],
-              ...project.assets.filter((asset) => asset.kind === "person" || asset.kind === "standing")
-            ]
-        : stage === "background" || stage === "backgroundRevision"
-          ? [
-              project.versions[0],
-              ...project.assets.filter((asset) => asset.kind === "background")
-            ]
-          : [project.versions[0], ...project.assets.filter((asset) => asset.kind === "logo" || asset.kind === "copy")];
 
-  return assets
-    .flatMap((asset) => (asset ? [asset] : []))
-    .map((asset) => {
-      const url = asset.url;
-      const filename = "filename" in asset ? asset.filename : path.basename(url);
-      const directory = url.startsWith("/generated") ? GENERATED_DIR : url.startsWith("/exports") ? EXPORT_DIR : UPLOAD_DIR;
-      return { url, path: path.join(directory, decodeURIComponent(filename)) };
-    });
+  if (stage === "people") {
+    const people = requested.filter((asset) => asset.kind === "person");
+    const uploadedStanding = requested.find((asset) => asset.kind === "standing");
+    const standing = uploadedStanding ?? standingTemplateAsset(request.standingTemplateUrl);
+    if (people.length !== 5) {
+      throw badRequest(`生成人物群像需要恰好 5 张人物定妆照，当前选择 ${people.length} 张。`);
+    }
+    if (!standing) throw badRequest("生成人物群像需要选择或上传一张站位线稿。");
+    return [...people, standing];
+  }
+
+  if (stage === "peopleRevision") {
+    const peopleBase = latestRealStageVersion(project, ["people", "peopleRevision"]);
+    const people = requested.filter((asset) => asset.kind === "person");
+    const uploadedStanding = requested.find((asset) => asset.kind === "standing");
+    const standing = uploadedStanding ?? standingTemplateAsset(request.standingTemplateUrl);
+    if (!peopleBase) throw badRequest("修改人物初稿前需要先生成一张真实模型返回的人物群像，本地 mock 不能作为修改底图。");
+    return [peopleBase, ...people, ...(standing ? [standing] : [])];
+  }
+
+  if (stage === "background" || stage === "backgroundRevision") {
+    const peopleBase = latestRealStageVersion(project, ["peopleRevision", "people"]);
+    const backgrounds = requested.length
+      ? requested.filter((asset) => asset.kind === "background")
+      : project.assets.filter((asset) => asset.kind === "background");
+    if (!peopleBase) throw badRequest("融合背景前需要先生成一张真实模型返回的人物群像，本地 mock 不能作为背景融合底图。");
+    if (backgrounds.length === 0) throw badRequest("融合背景需要至少上传一张背景参考图。");
+    return [peopleBase, ...backgrounds];
+  }
+
+  if (stage === "aiTypography") {
+    const posterBase = latestRealStageVersion(project, ["background", "backgroundRevision", "peopleRevision", "people"]);
+    const logos = requested.length
+      ? requested.filter((asset) => asset.kind === "logo")
+      : project.assets.filter((asset) => asset.kind === "logo").slice(-1);
+    if (!posterBase) throw badRequest("生成最终海报前需要先有真实模型返回的人物或背景融合图，本地 mock 不能作为最终海报底图。");
+    if (logos.length === 0) throw badRequest("生成最终海报需要上传节目 Logo。");
+    return [posterBase, ...logos];
+  }
+
+  return [];
+}
+
+function latestStageVersion(project: Awaited<ReturnType<typeof readProject>>, stages: GenerationStage[]) {
+  return project.versions.find((version) => stages.includes(version.stage));
+}
+
+function latestRealStageVersion(project: Awaited<ReturnType<typeof readProject>>, stages: GenerationStage[]) {
+  return project.versions.find((version) => stages.includes(version.stage) && version.mode === "openai");
+}
+
+function standingTemplateAsset(url?: string): ProjectAsset | undefined {
+  if (!url || !url.startsWith("/standing-templates/")) return undefined;
+  const filename = path.basename(url);
+  return {
+    id: `template:${filename}`,
+    kind: "standing",
+    filename,
+    originalName: filename,
+    url,
+    mimeType: filename.endsWith(".svg") ? "image/svg+xml" : "image/png",
+    size: 0,
+    createdAt: nowIso()
+  };
+}
+
+function composeInstruction(instruction: unknown, copy: unknown) {
+  const text = typeof instruction === "string" ? instruction.trim() : "";
+  if (!copy || typeof copy !== "object") return text;
+  const value = copy as Partial<Record<"title" | "slogan" | "meta" | "extra", string>>;
+  const copyText = [
+    value.title ? `标题：${value.title}` : "",
+    value.slogan ? `Slogan：${value.slogan}` : "",
+    value.meta ? `时间地点：${value.meta}` : "",
+    value.extra ? `补充信息：${value.extra}` : ""
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return [text, copyText ? `固定文案信息：\n${copyText}` : ""].filter(Boolean).join("\n\n");
+}
+
+function badRequest(message: string) {
+  const error = new Error(message);
+  Object.assign(error, { statusCode: 400 });
+  return error;
 }

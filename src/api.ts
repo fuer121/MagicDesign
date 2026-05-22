@@ -21,6 +21,10 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(patch)
     }),
+  deleteProject: (projectId: string) =>
+    request<{ ok: boolean; projectId: string }>(`/api/projects/${projectId}`, {
+      method: "DELETE"
+    }),
   upload: (projectId: string, kind: AssetKind, files: File[]) => {
     const form = new FormData();
     files.forEach((file) => form.append("files", file));
@@ -29,14 +33,25 @@ export const api = {
       body: form
     });
   },
+  deleteAsset: (projectId: string, assetId: string) =>
+    request<PosterProject>(`/api/projects/${projectId}/assets/${assetId}`, {
+      method: "DELETE"
+    }),
   importSamples: (projectId: string) =>
     request<PosterProject>(`/api/projects/${projectId}/import-samples`, {
       method: "POST"
     }),
-  generate: (projectId: string, stage: GenerationStage, instruction?: string, assetIds?: string[], size?: string) =>
+  generate: (
+    projectId: string,
+    stage: GenerationStage,
+    instruction?: string,
+    assetIds?: string[],
+    size?: string,
+    extra?: Record<string, unknown>
+  ) =>
     request<PosterProject>(`/api/projects/${projectId}/generate/${stage}`, {
       method: "POST",
-      body: JSON.stringify({ instruction, assetIds, size })
+      body: JSON.stringify({ instruction, assetIds, size, ...extra })
     }),
   confirmPeople: (projectId: string, confirmed: boolean) =>
     request<PosterProject>(`/api/projects/${projectId}/confirm-people`, {
